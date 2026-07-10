@@ -486,10 +486,10 @@
         <h2>Raw Rule Syntax Guide</h2>
         <p style="font-size:0.85rem; color:var(--text-main); line-height: 1.5;">Provide the prompt below to an LLM, or construct the mathematical formula yourself using the exact tokens listed. Fractional constants are completely supported.</p>
         <label style="font-size:0.7rem; color:var(--accent-color); margin-top: 5px;">COPIABLE PROMPT TEMPLATE</label>
-        <div id="copy-syntax-box" class="share-id-box" style="white-space:pre-wrap; text-align:left; font-size: 0.8rem; user-select: text;">You are a mathematical formula generator for a discrete escape-time fractal engine.
+        <div id="copy-syntax-box" class="share-id-box" style="white-space:pre-wrap; text-align:left; font-size: 0.8rem; user-select: text;">You are a mathematical formula generator for a discrete escape-time fractal engine modeling function a(b,n).
 Generate a single valid AST string using ONLY the following tokens. Do not include markdown formatting or explanations.
 
-Variables: nk, n0
+Variables: nk, n0 (nk maps to sequential state `n`, n0 maps to parameter `b`)
 Constants: Rationals (e.g., 42, -5.5, 0.618)
 Unary Ops: abs(x), sqr(x), cube(x), tri(x), isqrt(x), neg(x), is_even(x)
 Binary Ops: add(x,y), sub(x,y), mul(x,y), min(x,y), max(x,y), xor(x,y), and(x,y), or(x,y), sdiv(x,y), smod(x,y), shl(x,y), shr(x,y), eq(x,y), lt(x,y), le(x,y), gt(x,y), ge(x,y)
@@ -541,8 +541,8 @@ Example: smod(add(sqr(nk), n0), 256.5)</div>
                     <input type="number" id="ai-input-b" value="0.0" step="1.0">
                 </div>
                 <div class="input-group">
-                    <label>Initial State (Z₀)</label>
-                    <input type="number" id="ai-input-z" value="0.0" step="1.0">
+                    <label>Initial State (n₀)</label>
+                    <input type="number" id="ai-input-n0" value="0.0" step="1.0">
                 </div>
                 <button id="btn-analyze-seq" style="margin-top: 10px; width: 100%; padding: 8px;">Run Simulation</button>
 
@@ -588,7 +588,8 @@ Example: smod(add(sqr(nk), n0), 256.5)</div>
                 <select id="gif-vary-select"><option value="">Vary constant...</option></select>
                 <input type="number" id="gif-from" placeholder="From" value="0" step="0.1">
                 <input type="number" id="gif-to" placeholder="To" value="10" step="0.1">
-                <input type="number" id="gif-steps" placeholder="Frames" value="30" min="2" max="120">
+                <input type="number" id="gif-steps" placeholder="Frames" value="30" min="2">
+                <input type="number" id="gif-fps" placeholder="FPS" value="30" min="1" style="width: 70px;">
                 <button id="btn-generate-gif" class="btn-small">Synthesize Animation</button>
             </div>
             <div class="progress-text" id="gif-progress"></div>
@@ -640,7 +641,6 @@ function renderNode(node, constColors, path) {
     if (node instanceof Const) {
         var pathKey = path.join(',');
         var color = constColors ? (constColors[pathKey] || '#d3c4b5') : '#d3c4b5';
-        // Format to 3 decimal places max for cleanliness
         var displayVal = Number.isInteger(node.v) ? node.v : parseFloat(node.v.toFixed(3));
         return { str: '<span style="color:' + color + ';font-weight:bold;">' + displayVal + '</span>', prec: 100 };
     }
@@ -755,7 +755,7 @@ function getCartesianOffsets(mode, cx, cy, gridSize) {
 }
 
 /* =====================================================================
-   SHARED AST CLASSES (Now enforcing floating point rationals)
+   SHARED AST CLASSES (Strictly preserving FP capabilities)
    ===================================================================== */
 class ASTNode {
     compile() { throw new Error("Base"); }
@@ -783,7 +783,6 @@ class ASTNode {
 }
 
 class Const extends ASTNode {
-    // Cast strictly to float to allow fractional scaling.
     constructor(v) { super(); this.v = Number(v); } 
     compile() { return '(' + this.v + ')'; } 
     toSerialize() { return this.v.toString(); }
@@ -792,7 +791,7 @@ class Const extends ASTNode {
 
 class Var extends ASTNode {
     constructor(name) { super(); this.name = name; }
-    compile() { return '(' + this.name + ')'; } // Remove forced int cast to maintain fractions where valid
+    compile() { return '(' + this.name + ')'; }
     toSerialize() { return this.name; }
     clone() { return new Var(this.name); }
 }
@@ -808,7 +807,7 @@ class UnOp extends ASTNode {
             case 'tri': return '((' + aa + ' * (' + aa + ' + 1)) / 2)';
             case 'isqrt': return 'Math.floor(Math.sqrt(Math.abs(' + aa + ')))';
             case 'neg': return '(-(' + aa + '))';
-            case 'is_even': return '(((' + aa + ' | 0) & 1) === 0 ? 1 : 0)'; // bitwise requires int cast
+            case 'is_even': return '(((' + aa + ' | 0) & 1) === 0 ? 1 : 0)'; 
         }
     }
     toSerialize() { return this.op + '(' + this.a.toSerialize() + ')'; }
@@ -827,7 +826,6 @@ class BinOp extends ASTNode {
             case 'mul': return '(' + aa + ' * ' + bb + ')';
             case 'min': return 'Math.min(' + aa + ', ' + bb + ')';
             case 'max': return 'Math.max(' + aa + ', ' + bb + ')';
-            // Bitwise operations implicitly cast operands to 32-bit signed integers in JS.
             case 'xor': return '(' + aa + ' ^ ' + bb + ')';
             case 'and': return '(' + aa + ' & ' + bb + ')';
             case 'or':  return '(' + aa + ' | ' + bb + ')';
@@ -858,7 +856,7 @@ class IfElse extends ASTNode {
 }
 
 /* =====================================================================
-   SHARED FUNCTION — parseSerializedAST (Updates for floats)
+   SHARED FUNCTION — parseSerializedAST 
    ===================================================================== */
 function parseSerializedAST(str) {
     var pos = 0;
@@ -895,7 +893,6 @@ function parseSerializedAST(str) {
             }
             throw new Error("Unexpected identifier: " + id);
         }
-        // Match integers and floats (e.g. -5.23, 0.45, 42)
         m = str.slice(pos).match(/^-?\d+(\.\d+)?/);
         if (m) { pos += m[0].length; return new Const(Number(m[0])); }
         throw new Error("Syntax fault at index " + pos + ": " + str.slice(pos, pos + 15));
@@ -925,7 +922,7 @@ function computeEscapeData(tree, gridSize, coordMode, cx, cy) {
     var fn = new Function('nk', 'n0', 'return (' + tree.compile() + ');');
     var maxIter = 80;
     var r2 = 50000000.0 * 50000000.0;
-    var data = new Int32Array(gridSize * gridSize);
+    var data = new Float32Array(gridSize * gridSize);
     var off = getCartesianOffsets(coordMode, cx, cy, gridSize);
     for (var y = 0; y < gridSize; y++) {
         var n0 = off.offsetY + (gridSize - 1 - y);
@@ -934,7 +931,15 @@ function computeEscapeData(tree, gridSize, coordMode, cx, cy) {
             var curNk = nk, iters = maxIter;
             for (var i = 0; i < maxIter; i++) {
                 curNk = fn(curNk, n0);
-                if (Number(curNk) * Number(curNk) > r2) { iters = i; break; }
+                let mag = Math.abs(Number(curNk));
+                if (mag * mag > r2) { 
+                    // Fractional smoothing for GIF topology mapping
+                    let val = Math.log(mag + 1e-12) / Math.log(Math.sqrt(r2));
+                    let frac = 0;
+                    if (val > 1.0) frac = Math.log(val) / Math.log(2.0);
+                    iters = i + 1.0 - Math.max(0, frac);
+                    break; 
+                }
             }
             data[y * gridSize + x] = iters;
         }
@@ -960,7 +965,6 @@ class GIFEncoder {
         var n = this.width * this.height;
         var indexed = new Uint8Array(n);
         var palette = new Uint8Array(256 * 3);
-        /* Pre-build 3-3-2 palette */
         for (var i = 0; i < 256; i++) {
             var r = (i >> 5) & 7, g = (i >> 2) & 7, b = i & 3;
             palette[i * 3] = (r << 5) | (r << 2) | (r >> 1);
@@ -1017,7 +1021,6 @@ class GIFEncoder {
         bytes.push(0x47, 0x49, 0x46, 0x38, 0x39, 0x61);
         u16(this.width); u16(this.height);
         bytes.push(0x00, 0x00, 0x00);
-        /* Netscape looping */
         bytes.push(0x21, 0xFF, 0x0B, 0x4E, 0x45, 0x54, 0x53, 0x43, 0x41, 0x50, 0x45, 0x32, 0x2E, 0x30, 0x03, 0x01, 0x00, 0x00, 0x00);
         for (var f = 0; f < this.frames.length; f++) {
             var fr = this.frames[f];
@@ -1043,7 +1046,7 @@ class GIFEncoder {
 }
 
 /* =====================================================================
-   AI EXPLAINER — Dynamical System Sequence Simulator
+   AI EXPLAINER — Dynamical System Sequence Simulator a(b,n)
    ===================================================================== */
 class SequenceAnalyzer {
     constructor(tree) {
@@ -1053,44 +1056,39 @@ class SequenceAnalyzer {
         this.ESCAPE_RAD = 50000000;
     }
 
-    analyze(b, z0) {
-        let z = z0;
-        let traj = [z];
+    analyze(b, n0) {
+        let n = n0;
+        let traj = [n];
         let escapedAt = -1;
         let sumLogDeriv = 0;
-        let delta = 1e-5; // For numerical derivative
+        let delta = 1e-5; 
 
         for(let i = 1; i <= this.MAX_ITER; i++) {
-            let zNext = this.fn(z, b);
-            traj.push(zNext);
+            let nNext = this.fn(n, b);
+            traj.push(nNext);
             
-            // Numerical Derivative for Lyapunov exponent approx
-            let zNextDelta = this.fn(z + delta, b);
-            let deriv = (zNextDelta - zNext) / delta;
+            let nNextDelta = this.fn(n + delta, b);
+            let deriv = (nNextDelta - nNext) / delta;
             
             if(Math.abs(deriv) > 1e-12) {
                 sumLogDeriv += Math.log(Math.abs(deriv));
             } else {
-                // Highly attracting limit (e.g. mapping strictly to constant via logic gate)
                 sumLogDeriv += Math.log(1e-12);
             }
 
-            if(Math.abs(zNext) > this.ESCAPE_RAD) {
+            if(Math.abs(nNext) > this.ESCAPE_RAD) {
                 escapedAt = i;
                 break;
             }
-            z = zNext;
+            n = nNext;
         }
 
-        // Cycle Detection (Floyd-esque backwards search)
         let period = -1;
         let prePeriod = -1;
         if(escapedAt === -1) {
             let len = traj.length;
-            // Search periods up to 100
             for(let p = 1; p < 100; p++) {
                 let isCycle = true;
-                // Check exact strict equality (or extreme closeness for floats) over last 20 elements
                 for(let k = len - 1; k >= len - 20; k--) {
                     if(Math.abs(traj[k] - traj[k - p]) > 1e-6) {
                         isCycle = false; break;
@@ -1098,7 +1096,6 @@ class SequenceAnalyzer {
                 }
                 if(isCycle) {
                     period = p;
-                    // Find pre-period
                     for(let x = 0; x < len - p; x++) {
                         if(Math.abs(traj[x] - traj[x + p]) <= 1e-6) {
                             prePeriod = x;
@@ -1112,27 +1109,25 @@ class SequenceAnalyzer {
 
         let lyapunov = sumLogDeriv / (escapedAt === -1 ? this.MAX_ITER : escapedAt);
         
-        // Compute topology stats
         let ops = {};
         let keys = ['add','sub','mul','xor','and','or','sdiv','smod','shl','shr','sqr','cube','is_even'];
         for(let k of keys) ops[k] = 0;
         let totalNodes = 0;
         
-        let traverse = (n) => {
+        let traverse = (node) => {
             totalNodes++;
-            if (n instanceof UnOp) { ops[n.op] = (ops[n.op]||0) + 1; traverse(n.a); }
-            else if (n instanceof BinOp) { ops[n.op] = (ops[n.op]||0) + 1; traverse(n.a); traverse(n.b); }
-            else if (n instanceof IfElse) { traverse(n.cond); traverse(n.thn); traverse(n.els); }
+            if (node instanceof UnOp) { ops[node.op] = (ops[node.op]||0) + 1; traverse(node.a); }
+            else if (node instanceof BinOp) { ops[node.op] = (ops[node.op]||0) + 1; traverse(node.a); traverse(node.b); }
+            else if (node instanceof IfElse) { traverse(node.cond); traverse(node.thn); traverse(node.els); }
         };
         traverse(this.tree);
 
-        return { b, z0, traj, escapedAt, period, prePeriod, lyapunov, totalNodes, ops };
+        return { b, n0, traj, escapedAt, period, prePeriod, lyapunov, totalNodes, ops };
     }
 
     generateReport(data) {
         let html = '';
         
-        // 1. Executive Limit Summary
         html += '<p><span class="ai-heading">I. Topological Limit State</span>';
         if (data.escapedAt !== -1) {
             html += `Sequence mathematically diverges. It broke the escape threshold ($r > 5 \times 10^7$) at iteration <strong>${data.escapedAt}</strong>. `;
@@ -1150,7 +1145,6 @@ class SequenceAnalyzer {
         }
         html += '</p>';
 
-        // 2. Trajectory Mechanics
         html += '<p><span class="ai-heading">II. Numerical Trajectory</span>';
         let sample = data.traj.slice(0, 10).map(x => (Number.isInteger(x) ? x : x.toFixed(3))).join(' ➔ ');
         html += `Initial orbit sequence: <em>${sample} ...</em><br><br>`;
@@ -1160,7 +1154,6 @@ class SequenceAnalyzer {
         html += `Before resolution, the state bounds varied between [${Number.isInteger(minV)?minV:minV.toFixed(2)}, ${Number.isInteger(maxV)?maxV:maxV.toFixed(2)}]. `;
         html += '</p>';
 
-        // 3. Structural Causality
         html += '<p><span class="ai-heading">III. Syntactic Causality</span>';
         let bitwise = data.ops.xor + data.ops.and + data.ops.or + data.ops.shl + data.ops.shr;
         let polynomial = data.ops.sqr + data.ops.cube + data.ops.mul;
@@ -1315,7 +1308,7 @@ class MainApp {
             btnInfoParams: document.getElementById('btn-info-params'),
             btnInfoClose: document.getElementById('btn-info-close'),
             aiInputB: document.getElementById('ai-input-b'),
-            aiInputZ: document.getElementById('ai-input-z'),
+            aiInputN0: document.getElementById('ai-input-n0'),
             btnAnalyzeSeq: document.getElementById('btn-analyze-seq'),
             /* Params modal */
             modalParams: document.getElementById('modal-params'),
@@ -1326,6 +1319,7 @@ class MainApp {
             gifFrom: document.getElementById('gif-from'),
             gifTo: document.getElementById('gif-to'),
             gifSteps: document.getElementById('gif-steps'),
+            gifFps: document.getElementById('gif-fps'),
             btnGenerateGif: document.getElementById('btn-generate-gif'),
             gifProgress: document.getElementById('gif-progress'),
             gifPreview: document.getElementById('gif-preview'),
@@ -1364,14 +1358,12 @@ class MainApp {
             });
         });
         
-        // Mutually exclusive text boxes
         this.ui.cfgShareId.addEventListener('input', () => { if (this.ui.cfgShareId.value) this.ui.cfgRawRule.value = ''; });
         this.ui.cfgRawRule.addEventListener('input', () => { if (this.ui.cfgRawRule.value) this.ui.cfgShareId.value = ''; });
 
         this.ui.btnCancelSave.addEventListener('click', () => { this.ui.modalSave.classList.remove('active'); this.pendingSaveData = null; this.isRenameMode = false; });
         this.ui.btnConfirmSave.addEventListener('click', () => this.executeSaveOrRename());
 
-        /* Info modal events */
         this.ui.infoShareId.addEventListener('click', (e) => {
             navigator.clipboard.writeText(e.target.innerText).then(() => {
                 const orig = e.target.innerText;
@@ -1396,12 +1388,11 @@ class MainApp {
         this.ui.btnAnalyzeSeq.addEventListener('click', () => {
             if (this.currentInfoData && this.currentInfoData.tree) {
                 let b = parseFloat(this.ui.aiInputB.value) || 0.0;
-                let z = parseFloat(this.ui.aiInputZ.value) || 0.0;
-                this.runSequenceAI(this.currentInfoData.tree, b, z);
+                let n0 = parseFloat(this.ui.aiInputN0.value) || 0.0;
+                this.runSequenceAI(this.currentInfoData.tree, b, n0);
             }
         });
 
-        /* Params modal events */
         this.ui.btnParamsClose.addEventListener('click', () => this.ui.modalParams.classList.remove('active'));
         this.ui.btnGenerateGif.addEventListener('click', () => this.generateParamGif());
         this.ui.btnDownloadGif.addEventListener('click', () => { if (this.lastGifBlob) this.downloadBlob(this.lastGifBlob, 'GP_animation.gif'); });
@@ -1437,7 +1428,6 @@ class MainApp {
         if (!running) this.ui.progressBar.style.width = '0%';
     }
 
-    /* === WORKER MANAGEMENT === */
     buildSharedSource() {
         return [
             'var OP_INFO = ' + JSON.stringify(OP_INFO) + ';',
@@ -1483,7 +1473,6 @@ class MainApp {
         return this.paramWorker;
     }
 
-    // Notice we pass fixedSeed down to the worker for color stability
     renderWithParams(serializedAST, gridSize, coordConfig, fixedSeed) {
         return new Promise((resolve) => {
             var id = ++this.paramRenderId;
@@ -1533,8 +1522,6 @@ class MainApp {
         var rawRule = this.ui.cfgRawRule.value.trim();
         
         if (rawRule) {
-            // BUG FIX: Detect if user accidentally pasted Base64 directly into the Raw Rule box.
-            // If the string contains absolutely no parentheses, it's virtually impossible to be an AST.
             if (!rawRule.includes('(') && /^[A-Za-z0-9+/=]+$/.test(rawRule)) {
                 this.log("Detected Base64 string in Raw Rule input. Auto-correcting parse path...", "log-sys");
                 shareIdBase64 = rawRule; 
@@ -1716,7 +1703,6 @@ class MainApp {
         this.isRenameMode = false;
     }
 
-    /* === INFO & SEQUENCE AI MODAL === */
     showInfo(data, isArchived) {
         this.currentInfoData = data;
         var titleStr = isArchived ? data.name : (data.isCustom ? "Custom Synthesis" : 'Gen ID: ' + data.id);
@@ -1724,18 +1710,15 @@ class MainApp {
         this.ui.infoMath.innerHTML = data.readableMath;
         this.ui.infoShareId.innerText = data.shareId;
 
-        /* Prepare AST */
         try {
             var astStr = atob(data.shareId);
             var tree = parseSerializedAST(astStr);
             data.tree = tree;
             
-            // Run AI automatically for origin (0, 0)
             this.ui.aiInputB.value = "0.0";
-            this.ui.aiInputZ.value = "0.0";
+            this.ui.aiInputN0.value = "0.0";
             this.runSequenceAI(tree, 0.0, 0.0);
             
-            // Re-generate visual heat map GIF
             this.generateHighlightGIF(tree);
         } catch (e) {
             this.ui.infoAiText.innerHTML = '<p style="color:var(--danger);">Error analyzing formula AST: ' + e.message + '</p>';
@@ -1744,11 +1727,11 @@ class MainApp {
         this.ui.modalInfo.classList.add('active');
     }
 
-    runSequenceAI(tree, b, z0) {
+    runSequenceAI(tree, b, n0) {
         try {
             this.ui.infoAiText.innerHTML = '<div class="gif-loading">Evaluating mathematical limit state...</div>';
             let analyzer = new SequenceAnalyzer(tree);
-            let resultData = analyzer.analyze(b, z0);
+            let resultData = analyzer.analyze(b, n0);
             let htmlReport = analyzer.generateReport(resultData);
             this.ui.infoAiText.innerHTML = htmlReport;
         } catch (e) {
@@ -1758,26 +1741,34 @@ class MainApp {
 
     generateHighlightGIF(tree) {
         this.ui.infoGifContainer.innerHTML = '<div class="gif-loading">Computing spatial escape dynamics...</div>';
-        /* Async block */
         setTimeout(() => {
             try {
                 var gridSize = 80;
                 var coordConfig = { coordMode: this.ui.cfgCoordMode.value, coordX: parseInt(this.ui.cfgCoordX.value) || 0, coordY: parseInt(this.ui.cfgCoordY.value) || 0 };
                 var escapeData = computeEscapeData(tree, gridSize, coordConfig.coordMode, coordConfig.coordX, coordConfig.coordY);
                 var maxIter = 80;
-                /* Generate palette */
-                var palette = [];
-                for (var i = 0; i < maxIter; i++) {
-                    var t = Math.pow(i / maxIter, 0.75);
-                    var tp = 2.0 * Math.PI;
-                    var r = Math.floor((0.5 + 0.5 * Math.sin(tp * (t * 1.5 + 0.0))) * 255);
-                    var g = Math.floor((0.5 + 0.5 * Math.sin(tp * (t * 1.5 + 0.5))) * 255);
-                    var b = Math.floor((0.5 + 0.5 * Math.sin(tp * (t * 1.5 + 1.0))) * 255);
-                    palette.push([r, g, b]);
+                
+                // Advanced topology continuous palette simulation for GIF mapping
+                let lutSize = 500;
+                let rgbMap = new Uint32Array(lutSize + 1);
+                let tp = 2.0 * Math.PI;
+                let pal = { fr1:1.5, fg1:1.5, fb1:1.5, pr1:0, pg1:0.3, pb1:0.6, fr2:8.0, fg2:8.0, fb2:8.0, pr2:0.5, pg2:0.1, pb2:0.8, amp1:0.7, amp2:0.3 };
+                
+                for(let j=0; j<=lutSize; j++) {
+                    let t = Math.pow(j / lutSize, 0.75);
+                    let r1 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fr1 + pal.pr1));
+                    let g1 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fg1 + pal.pg1));
+                    let b1 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fb1 + pal.pb1));
+                    let r2 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fr2 + pal.pr2));
+                    let g2 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fg2 + pal.pg2));
+                    let b2 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fb2 + pal.pb2));
+                    let r = Math.floor((r1 * pal.amp1 + r2 * pal.amp2) * 255);
+                    let g = Math.floor((g1 * pal.amp1 + g2 * pal.amp2) * 255);
+                    let b = Math.floor((b1 * pal.amp1 + b2 * pal.amp2) * 255);
+                    rgbMap[j] = [r, g, b];
                 }
-                /* Build frames — show progressive escape */
+
                 var encoder = new GIFEncoder(gridSize, gridSize);
-                /* Select frames with non-linear pacing */
                 var frameIters = [];
                 for (var fi = 0; fi <= maxIter; fi++) {
                     if (fi <= 5 || fi % 4 === 0) frameIters.push(fi);
@@ -1786,11 +1777,14 @@ class MainApp {
                     var iter = frameIters[fii];
                     var rgba = new Uint8Array(gridSize * gridSize * 4);
                     for (var px = 0; px < gridSize * gridSize; px++) {
-                        var escIter = escapeData[px];
-                        if (escIter <= iter && escIter < maxIter) {
-                            var col = palette[escIter % palette.length];
+                        var smoothEsc = escapeData[px];
+                        if (smoothEsc <= iter && smoothEsc < maxIter) {
+                            let norm = smoothEsc / maxIter;
+                            let lidx = Math.floor(norm * lutSize);
+                            if(lidx < 0) lidx = 0; if(lidx > lutSize) lidx = lutSize;
+                            var col = rgbMap[lidx];
                             rgba[px * 4] = col[0]; rgba[px * 4 + 1] = col[1]; rgba[px * 4 + 2] = col[2]; rgba[px * 4 + 3] = 255;
-                        } else if (escIter >= maxIter) {
+                        } else if (smoothEsc >= maxIter) {
                             rgba[px * 4] = 10; rgba[px * 4 + 1] = 10; rgba[px * 4 + 2] = 15; rgba[px * 4 + 3] = 255;
                         } else {
                             rgba[px * 4] = 0; rgba[px * 4 + 1] = 0; rgba[px * 4 + 2] = 0; rgba[px * 4 + 3] = 255;
@@ -1807,7 +1801,6 @@ class MainApp {
         }, 50);
     }
 
-    /* === PARAMETERS MODAL (FRACTIONAL CONSTANTS) === */
     showParams(data, isArchived) {
         this.currentParamsData = data;
         this.lastGifBlob = null;
@@ -1823,7 +1816,6 @@ class MainApp {
             this.paramsTree = parseSerializedAST(astStr);
             this.paramsConstants = extractConstants(this.paramsTree);
 
-            /* Assign colors to constants */
             var constColors = [
                 '#e74c3c', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
                 '#1abc9c', '#e67e22', '#34495e', '#e91e63', '#00bcd4'
@@ -1842,19 +1834,16 @@ class MainApp {
                     c.label = 'C' + (i + 1);
                     this.paramsConstColors[c.path.join(',')] = c.color;
 
-                    /* Add to vary select */
                     var opt = document.createElement('option');
                     opt.value = i;
                     var dVal = Number.isInteger(c.value) ? c.value : parseFloat(c.value.toFixed(3));
                     opt.textContent = c.label + ' (curr: ' + dVal + ')';
                     this.ui.gifVarySelect.appendChild(opt);
 
-                    /* Create continuous fractional slider */
                     var group = document.createElement('div');
                     group.className = 'slider-group';
                     var val = parseFloat(c.value);
                     
-                    // Dynamic scaling based on magnitude
                     var range = Math.max(10, Math.abs(val) * 2);
                     var minV = val - range;
                     var maxV = val + range;
@@ -1880,7 +1869,6 @@ class MainApp {
                     this.ui.paramsSliders.appendChild(group);
                 });
 
-                /* Set default GIF range based on first constant */
                 if (this.paramsConstants.length > 0) {
                     var c0 = this.paramsConstants[0];
                     var r0 = Math.max(10, Math.abs(c0.value));
@@ -1888,7 +1876,6 @@ class MainApp {
                     this.ui.gifTo.value = (c0.value + r0).toFixed(1);
                 }
 
-                /* Update vary select change → update range */
                 this.ui.gifVarySelect.onchange = (e) => {
                     var idx = parseInt(e.target.value);
                     if (!isNaN(idx)) {
@@ -1902,7 +1889,6 @@ class MainApp {
                 this.ui.paramsFormula.innerHTML = 'a(b,n) = ' + renderNode(this.paramsTree, this.paramsConstColors).str;
             }
 
-            /* Initial preview render */
             this.updateParamsPreview();
         } catch (e) {
             this.log('Params UI Init Error: ' + e.message, 'log-err');
@@ -1913,7 +1899,6 @@ class MainApp {
     updateParamsPreview() {
         if (this.paramsPreviewPending) return;
         this.paramsPreviewPending = true;
-        /* Build modified tree injecting current slider floats */
         var tree = this.paramsTree;
         for (var c of this.paramsConstants) {
             tree = tree.replaceAt(c.path, new Const(c.value));
@@ -1922,7 +1907,6 @@ class MainApp {
         var gridSize = 256;
         var coordConfig = { coordMode: this.ui.cfgCoordMode.value, coordX: parseInt(this.ui.cfgCoordX.value) || 0, coordY: parseInt(this.ui.cfgCoordY.value) || 0 };
         
-        // Pass original hash as fixed seed to stabilize colors in preview
         var originalSeed = this.currentParamsData.id;
 
         this.renderWithParams(serialized, gridSize, coordConfig, originalSeed).then((result) => {
@@ -1943,7 +1927,8 @@ class MainApp {
         
         var fromVal = parseFloat(this.ui.gifFrom.value);
         var toVal = parseFloat(this.ui.gifTo.value);
-        var steps = Math.max(2, Math.min(120, parseInt(this.ui.gifSteps.value) || 30));
+        var steps = Math.max(2, parseInt(this.ui.gifSteps.value) || 30);
+        var fps = Math.max(1, parseInt(this.ui.gifFps.value) || 30);
         
         if (Math.abs(fromVal - toVal) < 0.001) { this.log('Animation endpoints must differ.', 'log-err'); return; }
 
@@ -1953,19 +1938,17 @@ class MainApp {
         this.ui.btnDownloadWebm.disabled = true;
         this.ui.gifPreview.innerHTML = '<div class="gif-loading">Synthesizing fractional interpolation sequence...</div>';
 
-        var gridSize = 1080; // Hardcoded extreme 1080x1080 resolution
+        var gridSize = 1080; 
         var coordConfig = { coordMode: this.ui.cfgCoordMode.value, coordX: parseInt(this.ui.cfgCoordX.value) || 0, coordY: parseInt(this.ui.cfgCoordY.value) || 0 };
         var frames = [];
         
-        // Lock the color palette by passing the original structure's ID as the seed
         var originalSeed = this.currentParamsData.id;
 
         try {
             for (var i = 0; i <= steps; i++) {
-                var val = fromVal + (toVal - fromVal) * (i / steps); // Pure float interpolation
+                var val = fromVal + (toVal - fromVal) * (i / steps);
                 this.ui.gifProgress.textContent = 'Rendering 1080x1080 frame ' + (i + 1) + '/' + (steps + 1) + ' (C' + (varyIdx + 1) + ' = ' + val.toFixed(3) + ')';
 
-                /* Build fractional modified tree */
                 var tree = this.paramsTree;
                 for (var j = 0; j < this.paramsConstants.length; j++) {
                     var cv = (j === varyIdx) ? val : this.paramsConstants[j].value;
@@ -1973,7 +1956,6 @@ class MainApp {
                 }
                 
                 var serialized = tree.toSerialize();
-                // Supply originalSeed to stop color flickering
                 var result = await this.renderWithParams(serialized, gridSize, coordConfig, originalSeed);
                 if (result.error) throw new Error(result.error);
                 frames.push(new Uint8Array(result.buffer));
@@ -1990,23 +1972,21 @@ class MainApp {
 
             this.lastGifFrames = frames;
 
-            /* Encode GIF (WARNING: VERY SLOW FOR 1080x1080, left intact as requested) */
             this.ui.gifProgress.textContent = 'Encoding LZW GIF89a stream (Warning: Heavy CPU/RAM Usage for 1080p)...';
-            // Allow DOM thread to update text
             await new Promise(r => setTimeout(r, 20)); 
             
             var encoder = new GIFEncoder(gridSize, gridSize);
+            var delay = Math.max(1, Math.round(100 / fps));
             for (var f = 0; f < frames.length; f++) {
-                encoder.addFrame(frames[f], 10);
+                encoder.addFrame(frames[f], delay);
             }
             this.lastGifBlob = encoder.getBlob();
             var gifUrl = URL.createObjectURL(this.lastGifBlob);
             this.ui.gifPreview.innerHTML = '<img src="' + gifUrl + '" alt="Fractional Animation preview">';
 
-            /* Generate WebM */
-            this.ui.gifProgress.textContent = 'Encoding High-Bitrate WebM (VP9 50Mbps)...';
+            this.ui.gifProgress.textContent = `Encoding High-Bitrate WebM (VP9 50Mbps at ${fps} FPS)...`;
             try {
-                this.lastWebmBlob = await this.exportWebM(frames, gridSize, gridSize, 10, 50000000); // 50Mbps Bitrate
+                this.lastWebmBlob = await this.exportWebM(frames, gridSize, gridSize, fps, 50000000); 
             } catch (webmErr) {
                 this.log('WebM export failed (browser support limited): ' + webmErr.message, 'log-err');
             }
@@ -2080,7 +2060,8 @@ class MainApp {
  */
 function WorkerLogic() {
     const CFG = {
-        MAX_ITER: 80,
+        MAX_ITER: 80,               // For extremely fast population evaluation
+        RENDER_MAX_ITER: 250,       // Immensely scaled limit for intricate detail rendering
         ESC_RAD_SQ: 50000000.0 * 50000000.0,
         MAX_DEPTH: 8,
         MAX_NODES: 80,
@@ -2162,7 +2143,6 @@ function WorkerLogic() {
         }
         randConst() {
             if (this.rng.next() < 0.70) return new Const(this.rng.choice(this.cPool));
-            // 30% chance for a continuous rational constant during evolution
             let v = this.rng.gauss(0, 64);
             if (this.rng.next() < 0.5) return new Const(v);
             return new Const(Math.floor(v));
@@ -2254,8 +2234,8 @@ function WorkerLogic() {
         let [p, c] = factory.rng.choice(cPaths);
         let v = c.v;
         let r = factory.rng.next();
-        if (r < 0.45) v += factory.rng.gauss(0, 8); // Add floating variation
-        else if (r < 0.70) v *= factory.rng.choice([2, -1, 3, 0.5, 1.5]); // Multiply variation
+        if (r < 0.45) v += factory.rng.gauss(0, 8); 
+        else if (r < 0.70) v *= factory.rng.choice([2, -1, 3, 0.5, 1.5]); 
         else v = (Math.floor(v) ^ (1 << factory.rng.randint(0, 10)));
         return limitTree(node.replaceAt(p, new Const(v)), factory);
     }
@@ -2280,7 +2260,6 @@ function WorkerLogic() {
         }
         compileFn() {
             if (!this.fn) {
-                // Compilation strictly respects floats now
                 this.fn = new Function('nk', 'n0', 'return (' + this.expr + ');');
             }
             return this.fn;
@@ -2306,7 +2285,6 @@ function WorkerLogic() {
                 let curNk = nk;
                 for (let i = 0; i < maxIter; i++) {
                     curNk = fn(curNk, n0);
-                    // Standard escape conditional on magnitude
                     if (Number(curNk) * Number(curNk) > r2) {
                         iters = i; escCount++; break;
                     }
@@ -2325,36 +2303,57 @@ function WorkerLogic() {
         else ind.fitness = std;
     }
 
+    // Advanced Spline / High Frequency Wave Palette Configuration
     function generatePalette(seedStr) {
         let rng = new PRNG(seedStr);
+        let amp1 = rng.gauss(0.6, 0.1);
+        let amp2 = 1.0 - amp1;
+        
         return {
-            fr: rng.gauss(1.5, 0.5), fg: rng.gauss(1.5, 0.5), fb: rng.gauss(1.5, 0.5),
-            pr: rng.next(), pg: rng.next(), pb: rng.next(),
+            fr1: Math.abs(rng.gauss(1.5, 1.0)), fg1: Math.abs(rng.gauss(1.5, 1.0)), fb1: Math.abs(rng.gauss(1.5, 1.0)),
+            pr1: rng.next(), pg1: rng.next(), pb1: rng.next(),
+            
+            fr2: Math.abs(rng.gauss(8.0, 3.0)), fg2: Math.abs(rng.gauss(8.0, 3.0)), fb2: Math.abs(rng.gauss(8.0, 3.0)),
+            pr2: rng.next(), pg2: rng.next(), pb2: rng.next(),
+            
+            amp1: amp1, amp2: amp2,
             ir: rng.randint(0, 20), ig: rng.randint(0, 20), ib: rng.randint(0, 25)
         };
     }
 
-    // Notice we accept a fixedSeed parameter to lock colors
     function renderImageBuffer(ind, gridSize, mode, cx, cy, fixedSeed) {
         let fn = ind.compileFn();
         let buffer = new ArrayBuffer(gridSize * gridSize * 4);
         let view = new Uint32Array(buffer);
         let pal = generatePalette(fixedSeed || ind.hash);
         let r2 = CFG.ESC_RAD_SQ;
+        let maxIter = CFG.RENDER_MAX_ITER; 
         
         let { offsetX, offsetY } = getCartesianOffsets(mode, cx, cy, gridSize);
 
-        let rgbMap = new Uint32Array(CFG.MAX_ITER + 1);
-        for (let i = 0; i < CFG.MAX_ITER; i++) {
-            let t = Math.pow(i / CFG.MAX_ITER, 0.75);
+        // Intricate Detail Continuous Potential LUT
+        const LUT_SIZE = 10000;
+        let rgbMap = new Uint32Array(LUT_SIZE + 1);
+        for(let j = 0; j <= LUT_SIZE; j++) {
+            let t = Math.pow(j / LUT_SIZE, 0.75); 
             let tp = 2.0 * Math.PI;
-            let r = Math.floor((0.5 + 0.5 * Math.sin(tp * (t * pal.fr + pal.pr))) * 255);
-            let g = Math.floor((0.5 + 0.5 * Math.sin(tp * (t * pal.fg + pal.pg))) * 255);
-            let b = Math.floor((0.5 + 0.5 * Math.sin(tp * (t * pal.fb + pal.pb))) * 255);
-            rgbMap[i] = (255 << 24) | (b << 16) | (g << 8) | r;
+            
+            let r1 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fr1 + pal.pr1));
+            let g1 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fg1 + pal.pg1));
+            let b1 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fb1 + pal.pb1));
+            
+            let r2 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fr2 + pal.pr2));
+            let g2 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fg2 + pal.pg2));
+            let b2 = 0.5 + 0.5 * Math.cos(tp * (t * pal.fb2 + pal.pb2));
+            
+            let r = Math.floor((r1 * pal.amp1 + r2 * pal.amp2) * 255);
+            let g = Math.floor((g1 * pal.amp1 + g2 * pal.amp2) * 255);
+            let b = Math.floor((b1 * pal.amp1 + b2 * pal.amp2) * 255);
+            
+            rgbMap[j] = (255 << 24) | (b << 16) | (g << 8) | r;
         }
-        rgbMap[CFG.MAX_ITER] = (255 << 24) | (pal.ib << 16) | (pal.ig << 8) | pal.ir;
 
+        let innerCol = (255 << 24) | (pal.ib << 16) | (pal.ig << 8) | pal.ir;
         let pixelIdx = 0;
         let sumR = 0, sumG = 0, sumB = 0;
         
@@ -2363,12 +2362,36 @@ function WorkerLogic() {
             let n0 = offsetY + (gridSize - 1 - y);
             for (let x = 0; x < gridSize; x++) {
                 let curNk = offsetX + x;
-                let iter = CFG.MAX_ITER;
-                for (let i = 0; i < CFG.MAX_ITER; i++) {
+                let iter = maxIter;
+                let mag = 0.0;
+                
+                for (let i = 0; i < maxIter; i++) {
                     curNk = fn(curNk, n0);
-                    if (Number(curNk) * Number(curNk) > r2) { iter = i; break; }
+                    mag = Math.abs(Number(curNk));
+                    if (mag * mag > r2) { iter = i; break; }
                 }
-                let col = rgbMap[iter];
+                
+                let col;
+                if (iter === maxIter) {
+                    col = innerCol;
+                } else {
+                    // Mathematically pure continuous fractional iteration counting
+                    let smooth_iter = iter;
+                    if (mag > 0.0) {
+                        let val = Math.log(mag + 1e-12) / Math.log(Math.sqrt(r2));
+                        if (val > 1.0) {
+                            let frac = Math.log(val) / Math.log(2.0);
+                            smooth_iter = iter + 1.0 - Math.max(0, frac);
+                        }
+                    }
+                    if (smooth_iter < 0) smooth_iter = 0;
+                    if (smooth_iter > maxIter) smooth_iter = maxIter;
+                    
+                    let lut_idx = Math.floor((smooth_iter / maxIter) * LUT_SIZE);
+                    if (lut_idx > LUT_SIZE) lut_idx = LUT_SIZE;
+                    col = rgbMap[lut_idx];
+                }
+                
                 view[pixelIdx++] = col;
                 sumR += (col & 0xFF);
                 sumG += ((col >> 8) & 0xFF);
@@ -2414,7 +2437,6 @@ function WorkerLogic() {
     };
 
     async function runParamRender(payload) {
-        // Now handles fixedSeed payload
         const { requestId, serializedAST, gridSize, coordMode, coordX, coordY, fixedSeed } = payload;
         let tree = parseSerializedAST(serializedAST);
         let ind = new Individual(tree);
